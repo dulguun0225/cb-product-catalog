@@ -17,6 +17,7 @@ import mn.netgroup.cb.productcatalog.domain.ProductFamily;
  */
 @Schema(
         name = "ProductFamily",
+        requiredProperties = {"id", "familyCode", "name", "status", "createdAt", "updatedAt"},
         description = "A named grouping under which product definitions are later registered.")
 public record ProductFamilyView(
         @Schema(

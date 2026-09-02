@@ -1,5 +1,6 @@
 package mn.netgroup.cb.productcatalog.api.error;
 
+import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
@@ -25,6 +26,10 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>The correlation identifier is read off the request, where {@link CorrelationIdFilter} put
  * it on the first dispatch. It is never minted here.
  */
+// Not part of the contract: /error is a servlet-container dispatch, not an operation an API
+// client calls. It carries no operationId and no x-requirements, and the committed document
+// declares no /error path.
+@Hidden
 @RestController
 public final class ErrorPathController implements ErrorController {
 
@@ -60,11 +65,8 @@ public final class ErrorPathController implements ErrorController {
 
         // Everything else keeps the status the framework decided and the problem shape, with no
         // code member: the approved catalog has no member for a protocol-level failure (D-08,
-        // OI-006).
-        ProblemDetail body = ProblemDetail.forStatus(status);
-        body.setTitle(status.getReasonPhrase());
-        body.setInstance(instance);
-        return ResponseEntity.status(status).body(body);
+        // OI-006). Built by the one factory, like every other body here.
+        return ResponseEntity.status(status).body(problems.uncoded(status, instance));
     }
 
     private static HttpStatus statusOf(HttpServletRequest request) {

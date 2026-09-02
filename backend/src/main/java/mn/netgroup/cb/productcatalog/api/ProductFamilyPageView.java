@@ -12,6 +12,7 @@ import java.util.List;
  */
 @Schema(
         name = "ProductFamilyPage",
+        requiredProperties = {"items", "nextCursor"},
         description =
                 "One keyset page. The response is flat - there is no data envelope, no _links member"
                         + " and no total count.")

@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
  */
 @Schema(
         name = "CreateProductFamilyRequest",
+        requiredProperties = {"familyCode", "name"},
         description =
                 "A request to register a product family. The status, the opaque identifier and both"
                         + " instants are the service's to assign and are not accepted here.")

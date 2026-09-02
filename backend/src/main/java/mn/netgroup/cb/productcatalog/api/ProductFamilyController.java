@@ -1,8 +1,11 @@
 package mn.netgroup.cb.productcatalog.api;
 
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.extensions.Extension;
-import io.swagger.v3.oas.annotations.extensions.ExtensionProperty;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -14,6 +17,7 @@ import mn.netgroup.cb.productcatalog.api.error.LimitViolation;
 import mn.netgroup.cb.productcatalog.domain.ProductFamily;
 import mn.netgroup.cb.productcatalog.domain.ProductFamilyService;
 import mn.netgroup.cb.productcatalog.ids.FamilyIds;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,7 +37,8 @@ import org.springframework.web.bind.annotation.RestController;
  * as "delete this field".
  */
 @RestController
-@RequestMapping("/v1/product-families")
+@Tag(name = "Product families")
+@RequestMapping(value = "/v1/product-families", produces = MediaType.APPLICATION_JSON_VALUE)
 public class ProductFamilyController {
 
     /** FR-020's declared bounds. Also stated on the contract's limit parameter. */
@@ -50,23 +55,35 @@ public class ProductFamilyController {
     }
 
     /** FR-001, FR-002, FR-003, FR-004, FR-016, FR-017, FR-018. */
-    @PostMapping
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ApiResponse(
+            responseCode = "201",
+            description = "The family was persisted.",
+            headers =
+                    @io.swagger.v3.oas.annotations.headers.Header(
+                            name = "Location",
+                            required = true,
+                            description = "The created family, addressed by its opaque identifier.",
+                            schema = @Schema(type = "string", format = "uri-reference")),
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductFamilyView.class)))
+    @ApiResponse(
+            responseCode = "400",
+            description =
+                    "The family code is not 3 to 20 characters of A-Z and 0-9 (FAMILY_CODE_INVALID),"
+                            + " or the name is not 1 to 120 characters (FAMILY_NAME_INVALID).",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(ref = "#/components/schemas/Problem")))
+    @ApiResponse(
+            responseCode = "409",
+            description = "A persisted family already holds that family code (FAMILY_CODE_DUPLICATE).",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(ref = "#/components/schemas/Problem")))
+    @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalError")
     @Operation(
             operationId = "createProductFamily",
             summary = "Register a product family",
             description =
                     "Persists a new product family with status ACTIVE and an opaque identifier the"
                             + " service assigns. The family code is stored exactly as supplied and can"
-                            + " never be changed afterwards.",
-            extensions =
-                    @Extension(
-                            properties =
-                                    @ExtensionProperty(
-                                            name = "x-requirements",
-                                            value =
-                                                    "[\"FR-001\",\"FR-002\",\"FR-003\",\"FR-004\","
-                                                            + "\"FR-016\",\"FR-017\",\"FR-018\",\"FR-023\"]",
-                                            parseValue = true)))
+                            + " never be changed afterwards.")
     public ResponseEntity<ProductFamilyView> create(@RequestBody CreateProductFamilyRequest request) {
         ProductFamily created = service.create(request.familyCode(), request.name());
         // FR-004: the Location header addresses the family by its opaque identifier. The family
@@ -77,25 +94,39 @@ public class ProductFamilyController {
 
     /** FR-005, FR-019. */
     @GetMapping("/{id}")
+    @ApiResponse(
+            responseCode = "200",
+            description = "The family.",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductFamilyView.class)))
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/FamilyNotFound")
+    @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalError")
     @Operation(
             operationId = "getProductFamily",
             summary = "Read one product family by its opaque identifier",
             description =
                     "Returns the family addressed by the opaque identifier. The family code is not"
-                            + " an identifier in a URL and cannot address a family here.",
-            extensions =
-                    @Extension(
-                            properties =
-                                    @ExtensionProperty(
-                                            name = "x-requirements",
-                                            value = "[\"FR-005\",\"FR-019\",\"FR-023\"]",
-                                            parseValue = true)))
-    public ProductFamilyView get(@PathVariable("id") String id) {
+                            + " an identifier in a URL and cannot address a family here.")
+    public ProductFamilyView get(
+            @Parameter(ref = "#/components/parameters/FamilyId") @PathVariable("id") String id) {
         return ProductFamilyView.of(service.findById(identifierOf(id)));
     }
 
     /** FR-006, FR-007, FR-008, FR-009, FR-020, FR-021, FR-022. */
     @GetMapping
+    @ApiResponse(
+            responseCode = "200",
+            description = "One page of product families.",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductFamilyPageView.class)))
+    @ApiResponse(
+            responseCode = "400",
+            description =
+                    "The limit is not an integer between 1 and 100 (LIMIT_ABOVE_MAXIMUM, with a"
+                            + " violation member of ABOVE_MAX, BELOW_MIN or NOT_AN_INTEGER and the min"
+                            + " and max members that bound it), the cursor failed its integrity check or"
+                            + " was issued for a different sort specification (CURSOR_INVALID), or the"
+                            + " status filter is neither ACTIVE nor RETIRED (STATUS_FILTER_INVALID).",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(ref = "#/components/schemas/Problem")))
+    @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalError")
     @Operation(
             operationId = "listProductFamilies",
             summary = "List product families, one keyset page at a time",
@@ -112,21 +143,38 @@ public class ProductFamilyController {
                             + " back unmodified and never construct or edit one. This page is not a"
                             + " snapshot: a family created after the first page may appear on a later"
                             + " one. With no status parameter, families of every status are returned"
-                            + " (spec OI-003).",
-            extensions =
-                    @Extension(
-                            properties =
-                                    @ExtensionProperty(
-                                            name = "x-requirements",
-                                            value =
-                                                    "[\"FR-006\",\"FR-007\",\"FR-008\",\"FR-009\","
-                                                            + "\"FR-020\",\"FR-021\",\"FR-022\",\"FR-023\"]",
-                                            parseValue = true)))
+                            + " (spec OI-003).")
     public ProductFamilyPageView list(
-            @RequestParam(name = "status", required = false) ProductFamilyStatus status,
-            @RequestParam(name = "limit", required = false, defaultValue = LIMIT_DEFAULT)
-                    @Min(LimitViolation.MINIMUM) @Max(LimitViolation.MAXIMUM) int limit,
-            @RequestParam(name = "cursor", required = false) String cursor,
+            @Parameter(description = "Return only families whose status equals this value.")
+                    @RequestParam(name = "status", required = false)
+                    ProductFamilyStatus status,
+            @Parameter(
+                            description =
+                                    "The maximum number of families in the page. It must be an integer"
+                                            + " between 1 and 100. Any value the declared bounds do not"
+                                            + " admit - above the maximum, below the minimum,"
+                                            + " absent-but-present as an empty value, repeated, not an"
+                                            + " integer, or beyond the range of a 32-bit integer - is"
+                                            + " rejected with 400 LIMIT_ABOVE_MAXIMUM carrying a"
+                                            + " violation member that says which. It is never silently"
+                                            + " clamped to the maximum and never silently defaulted.")
+                    @RequestParam(name = "limit", required = false, defaultValue = LIMIT_DEFAULT)
+                    @Min(LimitViolation.MINIMUM)
+                    @Max(LimitViolation.MAXIMUM)
+                    int limit,
+            @Parameter(
+                            description =
+                                    "The nextCursor of the previous page, passed back unmodified. It is"
+                                            + " integrity-sealed and carries the key identifier it was"
+                                            + " sealed under, so the sealing key can be rotated without"
+                                            + " invalidating cursors already issued. It is sealed, not"
+                                            + " confidential - a client can read the sort specification"
+                                            + " and the last row's values out of it, and cannot forge one"
+                                            + " - and forging one would grant no read the caller does not"
+                                            + " already have.",
+                            schema = @Schema(type = "string", maxLength = 512))
+                    @RequestParam(name = "cursor", required = false)
+                    String cursor,
             HttpServletRequest request) {
         rejectALimitTheFrameworkWouldHaveDefaulted(request);
         return pager.page(status == null ? null : status.toDomain(), cursor, limit);
@@ -153,6 +201,12 @@ public class ProductFamilyController {
 
     /** FR-010, FR-011, FR-013, FR-019. */
     @PostMapping("/{id}/retire")
+    @ApiResponse(
+            responseCode = "200",
+            description = "The family, now RETIRED.",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductFamilyView.class)))
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/FamilyNotFound")
+    @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalError")
     @Operation(
             operationId = "retireProductFamily",
             summary = "Retire a product family",
@@ -160,17 +214,9 @@ public class ProductFamilyController {
                     "Transitions an ACTIVE family to RETIRED. RETIRED is terminal: a retire request"
                             + " against an already RETIRED family is idempotent and returns that"
                             + " family unchanged, including its updatedAt. There is no request body"
-                            + " and no operation that returns a family to ACTIVE.",
-            extensions =
-                    @Extension(
-                            properties =
-                                    @ExtensionProperty(
-                                            name = "x-requirements",
-                                            value =
-                                                    "[\"FR-010\",\"FR-011\",\"FR-013\",\"FR-019\","
-                                                            + "\"FR-023\"]",
-                                            parseValue = true)))
-    public ProductFamilyView retire(@PathVariable("id") String id) {
+                            + " and no operation that returns a family to ACTIVE.")
+    public ProductFamilyView retire(
+            @Parameter(ref = "#/components/parameters/FamilyId") @PathVariable("id") String id) {
         return ProductFamilyView.of(service.retire(identifierOf(id)));
     }
 
