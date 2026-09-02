@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<!-- PLATFORM-14 · lld-html · Design · 2026-09-02 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PLATFORM-14 — Product family catalog · design preview</title>
+<style>
+  :root{--ink:#12181f;--mut:#5b6875;--line:#c3ccd6;--bg:#fbfcfd;--panel:#fff;
+        --a:#1f6feb;--g:#1a7f52;--r:#b3261e;--y:#8a6d00;--soft:#eef3f9;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{padding:22px 28px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+  h1{margin:0 0 4px;font-size:19px;letter-spacing:.2px}
+  header p{margin:0;color:var(--mut);font-size:12.5px}
+  main{padding:20px 28px 60px;max-width:1180px}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+          padding:16px 18px 20px;margin:18px 0}
+  h2{margin:0 0 2px;font-size:15px}
+  h2 .n{display:inline-block;min-width:22px;color:var(--mut);font-weight:600}
+  .cap{margin:0 0 12px;color:var(--mut);font-size:12.5px}
+  .note{margin:10px 0 0;padding:9px 11px;background:var(--soft);border-left:3px solid var(--a);
+        border-radius:0 4px 4px 0;font-size:12.5px;color:var(--mut)}
+  svg{display:block;max-width:100%;height:auto}
+  text{font:12px ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;fill:var(--ink)}
+  .t-s{font-size:10.5px;fill:var(--mut)}
+  .t-b{font-weight:600}
+  .t-m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
+  .box{fill:#fff;stroke:var(--line);stroke-width:1.2}
+  .box-a{fill:#eef4ff;stroke:var(--a);stroke-width:1.2}
+  .box-g{fill:#ecf7f1;stroke:var(--g);stroke-width:1.2}
+  .box-y{fill:#fdf6e3;stroke:var(--y);stroke-width:1.2}
+  .box-r{fill:#fdeeed;stroke:var(--r);stroke-width:1.2}
+  .hd{fill:#f2f5f9;stroke:var(--line);stroke-width:1.2}
+  .ln{stroke:var(--mut);stroke-width:1.2;fill:none}
+  .ln-d{stroke:var(--mut);stroke-width:1.2;fill:none;stroke-dasharray:4 3}
+  .life{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 4}
+  .err{stroke:var(--r);stroke-width:1.2;fill:none}
+  .ok{stroke:var(--g);stroke-width:1.2;fill:none}
+  .lbl-e{fill:var(--r)} .lbl-o{fill:var(--g)}
+</style>
+</head>
+<body>
+<header>
+  <h1>PLATFORM-14 · Product family catalog — detailed design preview</h1>
+  <p>Feature <code>001-product-family-catalog</code> · derived from spec v1 and plan v1 ·
+     contract <code>backend/contracts/openapi.yaml</code> v0.1.0 · Design stage, 2026-09-02.
+     Every name drawn here is the name the builder writes in code.</p>
+</header>
+<main>
+
+<section>
+  <h2><span class="n">①</span> Screens</h2>
+  <p class="cap">No panel. This feature has no <code>frontend/</code> workspace and creates none —
+     the spec excludes any user interface, so there is no screen, no route and no component to draw.
+     The only human-facing surface is the committed OpenAPI document an integrator reads.</p>
+</section>
+
+<section>
+  <h2><span class="n">②</span> Data model and lifecycle</h2>
+  <p class="cap">One table, owned by this service, created by one forward migration.
+     Left: the entity. Right: the state model the retire operation drives.</p>
+  <svg viewBox="0 0 1120 350" role="img" aria-label="Entity product_family and its ACTIVE to RETIRED state machine">
+    <!-- entity -->
+    <rect class="hd" x="20" y="20" width="440" height="30" rx="5"/>
+    <text x="34" y="40" class="t-b t-m">product_family</text>
+    <text x="452" y="40" class="t-s" text-anchor="end">V1__product_family.sql · T-002</text>
+    <rect class="box" x="20" y="50" width="440" height="222"/>
+    <line class="ln" x1="20" y1="50" x2="460" y2="50"/>
+    <g class="t-m">
+      <text x="34" y="72">id            uuid        PK, no column DEFAULT</text>
+      <text x="34" y="94">family_code   varchar(20) NOT NULL</text>
+      <text x="34" y="116">name          varchar(120) NOT NULL</text>
+      <text x="34" y="138">status        varchar(16) NOT NULL</text>
+      <text x="34" y="160">created_at    timestamptz NOT NULL</text>
+      <text x="34" y="182">updated_at    timestamptz NOT NULL</text>
+    </g>
+    <line class="ln" x1="20" y1="196" x2="460" y2="196"/>
+    <g class="t-s">
+      <text x="34" y="214">UNIQUE INDEX ux_product_family_code (family_code)</text>
+      <text x="34" y="230">CHECK ck_product_family_status: status IN ('ACTIVE','RETIRED')</text>
+      <text x="34" y="246">id written only by FamilyIds (UUIDv7) — never gen_random_uuid()</text>
+      <text x="34" y="262">both instants written from the injected Clock — no DEFAULT now(), no trigger</text>
+    </g>
+    <rect class="box-y" x="20" y="288" width="440" height="46" rx="5"/>
+    <text x="34" y="306" class="t-s t-b">Named gap — the schema default is absent</text>
+    <text x="34" y="322" class="t-s">PostgreSQL 16 has no native uuidv7(); a row written outside the application can carry a wrong id.</text>
+
+    <!-- state machine -->
+    <text x="560" y="38" class="t-b">State model — FamilyStatus</text>
+    <circle cx="596" cy="86" r="9" fill="var(--ink)"/>
+    <text x="614" y="90" class="t-s">create (FR-001)</text>
+    <path class="ln" d="M596 95 L596 126" marker-end="url(#ar)"/>
+    <rect class="box-g" x="530" y="128" width="132" height="46" rx="23"/>
+    <text x="596" y="150" text-anchor="middle" class="t-b">ACTIVE</text>
+    <text x="596" y="166" text-anchor="middle" class="t-s">initial</text>
+    <path class="ln" d="M596 174 L596 220" marker-end="url(#ar)"/>
+    <text x="608" y="200" class="t-s">retire · no guard · FR-010</text>
+    <rect class="box-r" x="530" y="222" width="132" height="46" rx="23"/>
+    <text x="596" y="244" text-anchor="middle" class="t-b">RETIRED</text>
+    <text x="596" y="260" text-anchor="middle" class="t-s">terminal</text>
+    <path class="ln-d" d="M662 245 C 726 245 726 200 726 245 C 726 290 662 290 662 258" marker-end="url(#ar)"/>
+    <text x="742" y="240" class="t-s">retire again · no guard</text>
+    <text x="742" y="256" class="t-s">returns the row unchanged</text>
+    <text x="742" y="272" class="t-s">FR-011 · idempotent</text>
+    <rect class="box-y" x="880" y="128" width="220" height="140" rx="5"/>
+    <text x="894" y="150" class="t-s t-b">No transition leaves RETIRED</text>
+    <text x="894" y="170" class="t-s">FR-013. No operation writes</text>
+    <text x="894" y="186" class="t-s">status = 'ACTIVE' after insert;</text>
+    <text x="894" y="202" class="t-s">the only UPDATE is guarded by</text>
+    <text x="894" y="218" class="t-s t-m">WHERE status = 'ACTIVE'.</text>
+    <text x="894" y="242" class="t-s">No operation changes family_code</text>
+    <text x="894" y="258" class="t-s">after insert (FR-012).</text>
+    <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+      orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--mut)"/></marker></defs>
+  </svg>
+</section>
+
+<section>
+  <h2><span class="n">③</span> Flows</h2>
+  <p class="cap">The four sequences that cross a module or a process boundary.
+     Every participant is a class the builder writes; the database is the process boundary.</p>
+
+  <svg viewBox="0 0 1120 300" role="img" aria-label="Create family sequence, including the duplicate family code branch">
+    <text x="10" y="18" class="t-b">F-1 · Create a family — POST /v1/product-families (T-007)</text>
+    <g>
+      <rect class="box-a" x="20" y="32" width="150" height="30" rx="4"/><text x="95" y="52" text-anchor="middle" class="t-m">API client</text>
+      <rect class="box" x="200" y="32" width="180" height="30" rx="4"/><text x="290" y="52" text-anchor="middle" class="t-m">ProductFamilyController</text>
+      <rect class="box" x="410" y="32" width="150" height="30" rx="4"/><text x="485" y="52" text-anchor="middle" class="t-m">FamilyCode</text>
+      <rect class="box" x="590" y="32" width="180" height="30" rx="4"/><text x="680" y="52" text-anchor="middle" class="t-m">ProductFamilyService</text>
+      <rect class="box" x="800" y="32" width="140" height="30" rx="4"/><text x="870" y="52" text-anchor="middle" class="t-m">Tx.write</text>
+      <rect class="box-g" x="965" y="32" width="140" height="30" rx="4"/><text x="1035" y="52" text-anchor="middle" class="t-m">PostgreSQL</text>
+    </g>
+    <g class="life"><line x1="95" y1="62" x2="95" y2="288"/><line x1="290" y1="62" x2="290" y2="288"/>
+      <line x1="485" y1="62" x2="485" y2="288"/><line x1="680" y1="62" x2="680" y2="288"/>
+      <line x1="870" y1="62" x2="870" y2="288"/><line x1="1035" y1="62" x2="1035" y2="288"/></g>
+    <path class="ln" d="M95 82 L288 82" marker-end="url(#ar)"/><text x="102" y="77" class="t-s">POST { familyCode, name }</text>
+    <path class="ln" d="M290 106 L483 106" marker-end="url(#ar)"/><text x="297" y="101" class="t-s">FamilyCode.of(raw) — ingress validation, before any repository call</text>
+    <path class="err" d="M483 128 L292 128" marker-end="url(#ar)"/><text x="300" y="123" class="t-s lbl-e">throws → 400 FAMILY_CODE_INVALID · name → 400 FAMILY_NAME_INVALID (FR-016/017)</text>
+    <path class="ln" d="M290 152 L678 152" marker-end="url(#ar)"/><text x="297" y="147" class="t-s">create(familyCode, name)</text>
+    <path class="ln" d="M680 176 L868 176" marker-end="url(#ar)"/><text x="687" y="171" class="t-s">FamilyIds.next() → UUIDv7 · Clock.instant() → createdAt = updatedAt · status ACTIVE</text>
+    <path class="ln" d="M870 200 L1033 200" marker-end="url(#ar)"/><text x="877" y="195" class="t-s">INSERT (explicit jOOQ DSL)</text>
+    <path class="err" d="M1033 222 L872 222" marker-end="url(#ar)"/><text x="700" y="217" class="t-s lbl-e">violation on ux_product_family_code → 409 FAMILY_CODE_DUPLICATE (FR-018)</text>
+    <path class="ok" d="M1033 246 L292 246" marker-end="url(#ar)"/><text x="300" y="241" class="t-s lbl-o">201 + Location: /v1/product-families/{id} + family body (FR-004)</text>
+    <text x="300" y="272" class="t-s">Duplicate detection is the database's unique index, never a pre-read — a pre-read races.</text>
+  </svg>
+
+  <svg viewBox="0 0 1120 268" role="img" aria-label="List families keyset page sequence">
+    <text x="10" y="18" class="t-b">F-2 · One keyset page — GET /v1/product-families?status=&amp;limit=&amp;cursor= (T-008)</text>
+    <g>
+      <rect class="box-a" x="20" y="32" width="150" height="30" rx="4"/><text x="95" y="52" text-anchor="middle" class="t-m">API client</text>
+      <rect class="box" x="200" y="32" width="180" height="30" rx="4"/><text x="290" y="52" text-anchor="middle" class="t-m">ProductFamilyController</text>
+      <rect class="box" x="410" y="32" width="150" height="30" rx="4"/><text x="485" y="52" text-anchor="middle" class="t-m">CursorCodec</text>
+      <rect class="box" x="590" y="32" width="180" height="30" rx="4"/><text x="680" y="52" text-anchor="middle" class="t-m">KeysetPager</text>
+      <rect class="box" x="800" y="32" width="140" height="30" rx="4"/><text x="870" y="52" text-anchor="middle" class="t-m">Tx.read</text>
+      <rect class="box-g" x="965" y="32" width="140" height="30" rx="4"/><text x="1035" y="52" text-anchor="middle" class="t-m">PostgreSQL</text>
+    </g>
+    <g class="life"><line x1="95" y1="62" x2="95" y2="256"/><line x1="290" y1="62" x2="290" y2="256"/>
+      <line x1="485" y1="62" x2="485" y2="256"/><line x1="680" y1="62" x2="680" y2="256"/>
+      <line x1="870" y1="62" x2="870" y2="256"/><line x1="1035" y1="62" x2="1035" y2="256"/></g>
+    <path class="ln" d="M95 82 L288 82" marker-end="url(#ar)"/><text x="102" y="77" class="t-s">GET · limit default 20, declared maximum 100</text>
+    <path class="err" d="M288 104 L100 104" marker-end="url(#ar)"/><text x="300" y="99" class="t-s lbl-e">limit outside [1,100] → 400 LIMIT_ABOVE_MAXIMUM + violation ABOVE_MAX|BELOW_MIN|NOT_AN_INTEGER + min/max (never clamped, FR-020) · status not ACTIVE|RETIRED → 400 STATUS_FILTER_INVALID (FR-022)</text>
+    <path class="ln" d="M290 128 L483 128" marker-end="url(#ar)"/><text x="297" y="123" class="t-s">decode(cursor) — HMAC check + sort spec must equal "familyCode,id"</text>
+    <path class="err" d="M483 150 L292 150" marker-end="url(#ar)"/><text x="300" y="145" class="t-s lbl-e">tampered or stale sort spec → 400 CURSOR_INVALID · never a best-effort seek (FR-021)</text>
+    <path class="ln" d="M290 174 L678 174" marker-end="url(#ar)"/><text x="297" y="169" class="t-s">page(status, after, limit)</text>
+    <path class="ln" d="M680 198 L1033 198" marker-end="url(#ar)"/><text x="687" y="193" class="t-s">SELECT … WHERE (family_code, id) &gt; (?, ?) ORDER BY family_code, id LIMIT limit + 1</text>
+    <path class="ok" d="M1033 222 L292 222" marker-end="url(#ar)"/><text x="300" y="217" class="t-s lbl-o">200 { items, nextCursor } — nextCursor non-null only when the (limit+1)th row came back (FR-009)</text>
+    <text x="300" y="246" class="t-s">Order is family_code ascending; id is the final tiebreak only and is in no sort vocabulary. Tie order is a non-promise.</text>
+  </svg>
+
+  <svg viewBox="0 0 1120 250" role="img" aria-label="Retire family sequence with the idempotent branch">
+    <text x="10" y="18" class="t-b">F-3 · Retire, idempotently — POST /v1/product-families/{id}/retire (T-009)</text>
+    <g>
+      <rect class="box-a" x="20" y="32" width="150" height="30" rx="4"/><text x="95" y="52" text-anchor="middle" class="t-m">API client</text>
+      <rect class="box" x="230" y="32" width="180" height="30" rx="4"/><text x="320" y="52" text-anchor="middle" class="t-m">ProductFamilyController</text>
+      <rect class="box" x="470" y="32" width="180" height="30" rx="4"/><text x="560" y="52" text-anchor="middle" class="t-m">ProductFamilyService</text>
+      <rect class="box" x="710" y="32" width="180" height="30" rx="4"/><text x="800" y="52" text-anchor="middle" class="t-m">Tx.write (one transaction)</text>
+      <rect class="box-g" x="950" y="32" width="150" height="30" rx="4"/><text x="1025" y="52" text-anchor="middle" class="t-m">PostgreSQL</text>
+    </g>
+    <g class="life"><line x1="95" y1="62" x2="95" y2="238"/><line x1="320" y1="62" x2="320" y2="238"/>
+      <line x1="560" y1="62" x2="560" y2="238"/><line x1="800" y1="62" x2="800" y2="238"/>
+      <line x1="1025" y1="62" x2="1025" y2="238"/></g>
+    <rect x="770" y="70" width="290" height="126" fill="none" stroke="var(--a)" stroke-dasharray="4 3"/>
+    <text x="778" y="86" class="t-s" fill="var(--a)">both statements inside the one Tx.write · UPDATE … RETURNING</text>
+    <path class="ln" d="M95 108 L318 108" marker-end="url(#ar)"/><text x="102" y="103" class="t-s">POST …/retire · empty body</text>
+    <path class="ln" d="M320 108 L558 108" marker-end="url(#ar)"/>
+    <path class="ln" d="M800 130 L1023 130" marker-end="url(#ar)"/><text x="806" y="125" class="t-s">UPDATE … SET status='RETIRED', updated_at=? WHERE id=? AND status='ACTIVE'</text>
+    <path class="ln-d" d="M800 166 L1023 166" marker-end="url(#ar)"/><text x="806" y="161" class="t-s">0 rows affected → SELECT status, updated_at … WHERE id = ? — branch on status, never on presence</text>
+    <path class="ok" d="M1023 200 L322 200" marker-end="url(#ar)"/><text x="330" y="195" class="t-s lbl-o">1 row → 200 RETIRED (FR-010) · 0 rows + row is RETIRED → 200 unchanged (FR-011) · 0 rows + absent → 404 FAMILY_NOT_FOUND (FR-019)</text>
+    <text x="330" y="224" class="t-s">Zero affected rows is a signal, never a no-op. One Tx.write is connection and seam hygiene — at READ COMMITTED the guarded WHERE is re-evaluated against the winner, so exactly one transition occurs.</text>
+  </svg>
+
+  <svg viewBox="0 0 1120 268" role="img" aria-label="Unhandled failure sequence producing a 500 problem document">
+    <text x="10" y="18" class="t-b">F-4 · An unhandled failure — every error body, one factory (T-006)</text>
+    <g>
+      <rect class="box-a" x="20" y="32" width="130" height="30" rx="4"/><text x="85" y="52" text-anchor="middle" class="t-m">API client</text>
+      <rect class="box-y" x="180" y="32" width="180" height="30" rx="4"/><text x="270" y="52" text-anchor="middle" class="t-m">CorrelationIdFilter</text>
+      <rect class="box" x="390" y="32" width="170" height="30" rx="4"/><text x="475" y="52" text-anchor="middle" class="t-m">any layer (throws)</text>
+      <rect class="box-r" x="590" y="32" width="230" height="30" rx="4"/><text x="705" y="52" text-anchor="middle" class="t-m">ProblemAdvice / ErrorPathController</text>
+      <rect class="box-r" x="850" y="32" width="120" height="30" rx="4"/><text x="910" y="52" text-anchor="middle" class="t-m">ProblemDocuments</text>
+      <rect class="box-y" x="1000" y="32" width="110" height="30" rx="4"/><text x="1055" y="52" text-anchor="middle" class="t-m">ErrorLog</text>
+    </g>
+    <g class="life"><line x1="85" y1="62" x2="85" y2="256"/><line x1="270" y1="62" x2="270" y2="256"/>
+      <line x1="475" y1="62" x2="475" y2="256"/><line x1="705" y1="62" x2="705" y2="256"/>
+      <line x1="910" y1="62" x2="910" y2="256"/><line x1="1055" y1="62" x2="1055" y2="256"/></g>
+    <path class="ln" d="M85 84 L268 84" marker-end="url(#ar)"/><text x="92" y="79" class="t-s">request enters — the filter is ordered HIGHEST_PRECEDENCE, before the dispatcher</text>
+    <path class="ln-d" d="M270 108 L270 240"/><text x="278" y="104" class="t-s">mints correlationId → logging context + request attribute, in a try/finally</text>
+    <path class="ln" d="M270 130 L473 130" marker-end="url(#ar)"/>
+    <path class="err" d="M475 154 L703 154" marker-end="url(#ar)"/><text x="483" y="149" class="t-s">throwable no branch handles · a throwable from a filter arrives at /error instead</text>
+    <path class="ln" d="M705 178 L1053 178" marker-end="url(#ar)"/><text x="713" y="173" class="t-s">one ECS JSON event at ERROR: the correlationId read from the attribute, never minted here, plus the throwable</text>
+    <path class="ln" d="M705 202 L908 202" marker-end="url(#ar)"/><text x="713" y="197" class="t-s">build(INTERNAL_ERROR, correlationId) — the one factory, two callers</text>
+    <path class="err" d="M908 228 L90 228" marker-end="url(#ar)"/><text x="98" y="223" class="t-s lbl-e">500 problem+json { code: INTERNAL_ERROR, correlationId } — no message, class name or stack frame (FR-023)</text>
+    <text x="98" y="250" class="t-s">The same correlationId retrieves that log event. An id that retrieves nothing makes the 500 contract a dead end.</text>
+  </svg>
+</section>
+
+<section>
+  <h2><span class="n">④</span> Module dependency graph</h2>
+  <p class="cap">One Maven module under <code>backend/</code>. Every arrow is a permitted dependency;
+     an arrow that is not drawn is a layer-boundary finding at code review.</p>
+  <svg viewBox="0 0 1120 470" role="img" aria-label="Module dependency graph of the backend package tree">
+    <rect x="12" y="12" width="1096" height="446" fill="none" stroke="var(--line)" rx="6"/>
+    <text x="26" y="34" class="t-s t-b">backend/ · mn.netgroup.cb.productcatalog</text>
+
+    <rect class="box-a" x="60" y="52" width="230" height="42" rx="4"/>
+    <text x="175" y="70" text-anchor="middle" class="t-m t-b">api/</text>
+    <text x="175" y="86" text-anchor="middle" class="t-s">the only package that knows HTTP</text>
+    <rect class="box" x="330" y="52" width="230" height="42" rx="4"/>
+    <text x="445" y="70" text-anchor="middle" class="t-m">api/ProductFamilyController</text>
+    <text x="445" y="86" text-anchor="middle" class="t-s">T-007 · T-008 · T-009</text>
+    <rect class="box" x="600" y="52" width="215" height="42" rx="4"/>
+    <text x="707" y="70" text-anchor="middle" class="t-m">api/KeysetPager · CursorCodec</text>
+    <text x="707" y="86" text-anchor="middle" class="t-s">T-008 · the one pager, the one cursor</text>
+    <rect class="box-r" x="855" y="52" width="215" height="42" rx="4"/>
+    <text x="962" y="70" text-anchor="middle" class="t-m">api/error/</text>
+    <text x="962" y="86" text-anchor="middle" class="t-s">T-006 · ProblemDocuments · ProblemAdvice · ErrorPathController · CorrelationIdFilter · ErrorCode · ErrorLog</text>
+
+    <rect class="box" x="330" y="160" width="230" height="42" rx="4"/>
+    <text x="445" y="178" text-anchor="middle" class="t-m t-b">domain/ProductFamilyService</text>
+    <text x="445" y="194" text-anchor="middle" class="t-s">T-005 · the only caller of the repository</text>
+    <rect class="box" x="600" y="160" width="215" height="42" rx="4"/>
+    <text x="707" y="178" text-anchor="middle" class="t-m">domain/ FamilyCode · FamilyStatus</text>
+    <text x="707" y="194" text-anchor="middle" class="t-s">T-005 · ProductFamily</text>
+    <rect class="box" x="60" y="160" width="230" height="42" rx="4"/>
+    <text x="175" y="178" text-anchor="middle" class="t-m">ids/FamilyIds</text>
+    <text x="175" y="194" text-anchor="middle" class="t-s">T-003 · the one UUIDv7 producer</text>
+
+    <rect class="box" x="330" y="268" width="230" height="42" rx="4"/>
+    <text x="445" y="286" text-anchor="middle" class="t-m t-b">persistence/ProductFamilyRepository</text>
+    <text x="445" y="302" text-anchor="middle" class="t-s">T-004 · explicit jOOQ DSL only</text>
+    <rect class="box-y" x="600" y="268" width="215" height="42" rx="4"/>
+    <text x="707" y="286" text-anchor="middle" class="t-m">persistence/Tx</text>
+    <text x="707" y="302" text-anchor="middle" class="t-s">T-004 · the one transaction seam</text>
+    <rect class="box" x="60" y="268" width="230" height="42" rx="4"/>
+    <text x="175" y="286" text-anchor="middle" class="t-m">config/ TimeConfig · OpenApiConfig</text>
+    <text x="175" y="302" text-anchor="middle" class="t-s">T-001 · T-010 · the one Clock bean</text>
+
+    <rect class="box-g" x="330" y="376" width="230" height="42" rx="4"/>
+    <text x="445" y="394" text-anchor="middle" class="t-m">generated jOOQ · target/</text>
+    <text x="445" y="410" text-anchor="middle" class="t-s">T-002 · not committed · ban-list excluded</text>
+    <rect class="box-g" x="600" y="376" width="215" height="42" rx="4"/>
+    <text x="707" y="394" text-anchor="middle" class="t-m">PostgreSQL 16</text>
+    <text x="707" y="410" text-anchor="middle" class="t-s">db/migration/V1__product_family.sql</text>
+    <rect class="box-y" x="855" y="268" width="215" height="150" rx="4"/>
+    <text x="962" y="290" text-anchor="middle" class="t-s t-b">Arrows that must not exist</text>
+    <text x="868" y="312" class="t-s">api/ → persistence/ (skips the service)</text>
+    <text x="868" y="332" class="t-s">domain/ or persistence/ → api/</text>
+    <text x="868" y="352" class="t-s">anything → an injected DSLContext</text>
+    <text x="868" y="372" class="t-s">anything but FamilyIds → a UUID generator</text>
+    <text x="868" y="392" class="t-s">anything but ProblemDocuments → an error body</text>
+    <text x="868" y="412" class="t-s">anything but KeysetPager → orderBy(id)</text>
+
+    <g>
+      <path class="ln" d="M445 94 L445 158" marker-end="url(#ar)"/>
+      <path class="ln" d="M707 94 L707 158" marker-end="url(#ar)"/>
+      <path class="ln" d="M600 73 L562 73" marker-end="url(#ar)"/>
+      <path class="ln" d="M855 84 C 700 130 560 120 560 168" marker-end="url(#ar)"/>
+      <path class="ln" d="M445 202 L445 266" marker-end="url(#ar)"/>
+      <path class="ln" d="M600 181 L562 181" marker-end="url(#ar)"/>
+      <path class="ln" d="M292 181 L328 181" marker-end="url(#ar)"/>
+      <path class="ln" d="M445 310 L445 374" marker-end="url(#ar)"/>
+      <path class="ln" d="M600 289 L562 289" marker-end="url(#ar)"/>
+      <path class="ln" d="M560 397 L598 397" marker-end="url(#ar)"/>
+      <path class="ln-d" d="M292 289 C 320 250 320 220 328 190" marker-end="url(#ar)"/>
+    </g>
+    <text x="26" y="446" class="t-s">Solid = a call. Dashed = a bean the container injects. Every SQL statement is reached only inside a Tx.read / Tx.write lambda.</text>
+  </svg>
+</section>
+
+</main>
+</body>
+</html>

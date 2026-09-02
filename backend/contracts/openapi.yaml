@@ -1,0 +1,500 @@
+# PLATFORM-14 · contract (OpenAPI 3.1) · Design · 2026-09-02
+# Feature 001-product-family-catalog · derived from spec.md v1 (db96798d…) and plan.md v1 (9d5f3fa8…).
+# This is the contract both builders implement to. The backend regenerates its document from code
+# and a test byte-compares it against this file; the frontend (none in this feature) would derive
+# its client from this file and never from the backend's source.
+openapi: 3.1.0
+info:
+  title: Product family catalog
+  version: 0.1.0
+  description: >-
+    The core-banking product family catalog. A product family carries an opaque
+    identifier assigned by the service, a client-supplied immutable family code, a
+    name, and a lifecycle status of ACTIVE or RETIRED. Families are created,
+    read by identifier, listed a keyset page at a time, and retired. Retirement is
+    terminal and idempotent; no operation returns a family to ACTIVE and no
+    operation changes a persisted family code. This service declares no
+    authentication: it returns no 401 and no 403 (spec 1, OI-005).
+
+
+    Named gap, open at this gate: the protocol-level failures the framework
+    produces before any operation below is entered - 400 on a body that is not
+    readable JSON, 405, 406, 415 - are RFC 9457 problem documents with the right
+    status, but the approved error-code catalog has no member for them, so they
+    carry no code member. They are therefore not declared as responses on the
+    operations below. See the design's OI-003 and decision D-08.
+tags:
+  - name: Product families
+    description: Registration, retrieval, listing and retirement of product families.
+  - name: Operations
+    description: Deployment readiness.
+paths:
+  /v1/product-families:
+    post:
+      tags: [Product families]
+      operationId: createProductFamily
+      summary: Register a product family
+      description: >-
+        Persists a new product family with status ACTIVE and an opaque identifier
+        the service assigns. The family code is stored exactly as supplied and can
+        never be changed afterwards.
+      x-requirements: [FR-001, FR-002, FR-003, FR-004, FR-016, FR-017, FR-018, FR-023]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductFamilyRequest'
+            example:
+              familyCode: DEPOSITS
+              name: Deposit products
+      responses:
+        '201':
+          description: The family was persisted.
+          headers:
+            Location:
+              description: The created family, addressed by its opaque identifier.
+              required: true
+              schema:
+                type: string
+                format: uri-reference
+                examples: ['/v1/product-families/0192f3a1-6c7d-7c3e-9f21-4b7c1d2e3f40']
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductFamily'
+              example:
+                id: 0192f3a1-6c7d-7c3e-9f21-4b7c1d2e3f40
+                familyCode: DEPOSITS
+                name: Deposit products
+                status: ACTIVE
+                createdAt: '2026-09-02T08:15:30.120Z'
+                updatedAt: '2026-09-02T08:15:30.120Z'
+        '400':
+          description: >-
+            The family code is not 3 to 20 characters of A-Z and 0-9
+            (FAMILY_CODE_INVALID), or the name is not 1 to 120 characters
+            (FAMILY_NAME_INVALID).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: 'about:blank'
+                title: Bad Request
+                status: 400
+                detail: The family code does not satisfy its declared form.
+                instance: /v1/product-families
+                code: FAMILY_CODE_INVALID
+        '409':
+          description: A persisted family already holds that family code (FAMILY_CODE_DUPLICATE).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: 'about:blank'
+                title: Conflict
+                status: 409
+                detail: That family code is already held by a persisted family.
+                instance: /v1/product-families
+                code: FAMILY_CODE_DUPLICATE
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [Product families]
+      operationId: listProductFamilies
+      summary: List product families, one keyset page at a time
+      description: >-
+        Returns one keyset page ordered by familyCode ascending, with the opaque
+        identifier appended as the final tiebreak only. The identifier is not part
+        of the declared sort vocabulary, and the relative order of two families
+        sharing a family code is an explicit non-promise of this contract - nothing
+        may depend on it. There is no offset, page or pageNumber parameter and no
+        total count. nextCursor is null only on the last page, and a non-null
+        nextCursor always fetches a further page. A cursor is issued by the service,
+        is integrity-sealed, and carries the sort specification it was issued for;
+        clients pass one back unmodified and never construct or edit one. This page
+        is not a snapshot: a family created after the first page may appear on a
+        later one. With no status parameter, families of every status are returned
+        (spec OI-003).
+      x-requirements: [FR-006, FR-007, FR-008, FR-009, FR-020, FR-021, FR-022, FR-023]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Return only families whose status equals this value.
+          schema:
+            $ref: '#/components/schemas/ProductFamilyStatus'
+        - name: limit
+          in: query
+          required: false
+          description: >-
+            The maximum number of families in the page. It must be an integer
+            between 1 and 100. Any value the declared bounds do not admit - above
+            the maximum, below the minimum, absent-but-present as an empty value,
+            repeated, not an integer, or beyond the range of a 32-bit integer - is
+            rejected with 400 LIMIT_ABOVE_MAXIMUM carrying a violation member that
+            says which. It is never silently clamped to the maximum and never
+            silently defaulted.
+          schema:
+            type: integer
+            format: int32
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          required: false
+          description: >-
+            The nextCursor of the previous page, passed back unmodified. It is
+            integrity-sealed and carries the key identifier it was sealed under, so
+            the sealing key can be rotated without invalidating cursors already
+            issued. It is sealed, not confidential - a client can read the sort
+            specification and the last row's values out of it, and cannot forge one
+            - and forging one would grant no read the caller does not already have.
+          schema:
+            type: string
+            maxLength: 512
+      responses:
+        '200':
+          description: One page of product families.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductFamilyPage'
+              example:
+                items:
+                  - id: 0192f3a1-6c7d-7c3e-9f21-4b7c1d2e3f40
+                    familyCode: DEPOSITS
+                    name: Deposit products
+                    status: ACTIVE
+                    createdAt: '2026-09-02T08:15:30.120Z'
+                    updatedAt: '2026-09-02T08:15:30.120Z'
+                nextCursor: v1.ZmFtaWx5Q29kZSxpZA.REVQT1NJVFM.MDE5MmYzYTE.9f2c1b7a4e6d
+        '400':
+          description: >-
+            The limit is not an integer between 1 and 100 (LIMIT_ABOVE_MAXIMUM,
+            with a violation member of ABOVE_MAX, BELOW_MIN or NOT_AN_INTEGER and
+            the min and max members that bound it), the cursor failed its integrity
+            check or was issued for a different sort specification
+            (CURSOR_INVALID), or the status filter is neither ACTIVE nor RETIRED
+            (STATUS_FILTER_INVALID).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: 'about:blank'
+                title: Bad Request
+                status: 400
+                detail: limit must be an integer between 1 and 100.
+                instance: /v1/product-families
+                code: LIMIT_ABOVE_MAXIMUM
+                violation: ABOVE_MAX
+                min: 1
+                max: 100
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/product-families/{id}:
+    parameters:
+      - $ref: '#/components/parameters/FamilyId'
+    get:
+      tags: [Product families]
+      operationId: getProductFamily
+      summary: Read one product family by its opaque identifier
+      description: >-
+        Returns the family addressed by the opaque identifier. The family code is
+        not an identifier in a URL and cannot address a family here.
+      x-requirements: [FR-005, FR-019, FR-023]
+      responses:
+        '200':
+          description: The family.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductFamily'
+              example:
+                id: 0192f3a1-6c7d-7c3e-9f21-4b7c1d2e3f40
+                familyCode: DEPOSITS
+                name: Deposit products
+                status: ACTIVE
+                createdAt: '2026-09-02T08:15:30.120Z'
+                updatedAt: '2026-09-02T08:15:30.120Z'
+        '404':
+          $ref: '#/components/responses/FamilyNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/product-families/{id}/retire:
+    parameters:
+      - $ref: '#/components/parameters/FamilyId'
+    post:
+      tags: [Product families]
+      operationId: retireProductFamily
+      summary: Retire a product family
+      description: >-
+        Transitions an ACTIVE family to RETIRED. RETIRED is terminal: a retire
+        request against an already RETIRED family is idempotent and returns that
+        family unchanged, including its updatedAt. There is no request body and no
+        operation that returns a family to ACTIVE.
+      x-requirements: [FR-010, FR-011, FR-013, FR-019, FR-023]
+      responses:
+        '200':
+          description: The family, now RETIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductFamily'
+              example:
+                id: 0192f3a1-6c7d-7c3e-9f21-4b7c1d2e3f40
+                familyCode: DEPOSITS
+                name: Deposit products
+                status: RETIRED
+                createdAt: '2026-09-02T08:15:30.120Z'
+                updatedAt: '2026-09-02T09:02:11.004Z'
+        '404':
+          $ref: '#/components/responses/FamilyNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /actuator/health:
+    get:
+      tags: [Operations]
+      operationId: health
+      summary: Report whether the service is able to serve requests
+      description: >-
+        Spring Boot Actuator health, with the datasource indicator on. Read by the
+        container orchestrator's probe and by the deploy stage. It returns no
+        family data.
+      x-requirements: [FR-014]
+      responses:
+        '200':
+          description: The service is able to serve requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              example:
+                status: UP
+        '503':
+          description: A dependency the service needs is not available.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              example:
+                status: DOWN
+components:
+  parameters:
+    FamilyId:
+      name: id
+      in: path
+      required: true
+      description: The opaque identifier the service assigned to the family.
+      schema:
+        type: string
+        format: uuid
+      examples:
+        assigned:
+          value: 0192f3a1-6c7d-7c3e-9f21-4b7c1d2e3f40
+  responses:
+    FamilyNotFound:
+      description: >-
+        No persisted family holds that opaque identifier (FAMILY_NOT_FOUND). A
+        path segment that is not a well-formed identifier is one no family holds
+        and is answered here, with the same body as a well-formed identifier that
+        is simply absent - the response never echoes the submitted segment, so it
+        is not an oracle for the identifier's form.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: 'about:blank'
+            title: Not Found
+            status: 404
+            detail: No product family holds that identifier.
+            instance: /v1/product-families/0192f3a1-6c7d-7c3e-9f21-4b7c1d2e3f40
+            code: FAMILY_NOT_FOUND
+    InternalError:
+      description: >-
+        An unhandled failure occurred (INTERNAL_ERROR). The body carries a
+        correlation identifier and no other internal detail - no exception message,
+        no class name, no stack frame.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: 'about:blank'
+            title: Internal Server Error
+            status: 500
+            detail: The request could not be completed.
+            instance: /v1/product-families
+            code: INTERNAL_ERROR
+            correlationId: 0192f3a1-8f00-7a11-b3d0-6c5e9a0f1122
+  schemas:
+    ProductFamilyStatus:
+      type: string
+      description: The two states of a product family. ACTIVE is initial; RETIRED is terminal.
+      enum: [ACTIVE, RETIRED]
+      examples: [ACTIVE]
+    ProductFamily:
+      type: object
+      description: A named grouping under which product definitions are later registered.
+      required: [id, familyCode, name, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: >-
+            The opaque identifier the service assigned. Clients never supply or
+            choose one, and nothing may be parsed out of it - it is not an ordering.
+        familyCode:
+          type: string
+          minLength: 3
+          maxLength: 20
+          pattern: '^[A-Z0-9]{3,20}$'
+          description: >-
+            The human-facing handle, supplied at creation, unique across the
+            service, immutable, and stored exactly as supplied. Nothing may parse
+            meaning out of it.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        status:
+          $ref: '#/components/schemas/ProductFamilyStatus'
+        createdAt:
+          type: string
+          format: date-time
+          description: The instant the service first persisted the family, in UTC with a Z designator.
+        updatedAt:
+          type: string
+          format: date-time
+          description: The instant the service last changed the family, in UTC with a Z designator.
+      examples:
+        - id: 0192f3a1-6c7d-7c3e-9f21-4b7c1d2e3f40
+          familyCode: DEPOSITS
+          name: Deposit products
+          status: ACTIVE
+          createdAt: '2026-09-02T08:15:30.120Z'
+          updatedAt: '2026-09-02T08:15:30.120Z'
+    CreateProductFamilyRequest:
+      type: object
+      description: >-
+        A request to register a product family. The status, the opaque identifier
+        and both instants are the service's to assign and are not accepted here.
+      required: [familyCode, name]
+      properties:
+        familyCode:
+          type: string
+          minLength: 3
+          maxLength: 20
+          pattern: '^[A-Z0-9]{3,20}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+      examples:
+        - familyCode: DEPOSITS
+          name: Deposit products
+    ProductFamilyPage:
+      type: object
+      description: >-
+        One keyset page. The response is flat - there is no data envelope, no
+        _links member and no total count.
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductFamily'
+        nextCursor:
+          type: [string, 'null']
+          maxLength: 512
+          description: >-
+            The cursor addressing the page after this one, or null when this is the
+            last page. Null means end; a non-null value always fetches a further page.
+      examples:
+        - items: []
+          nextCursor: null
+    HealthStatus:
+      type: object
+      description: The readiness of the service, as Spring Boot Actuator reports it.
+      required: [status]
+      properties:
+        status:
+          type: string
+          examples: [UP]
+      examples:
+        - status: UP
+    Problem:
+      type: object
+      description: >-
+        An RFC 9457 problem document. Every error response this service returns has
+        this shape, is built in one place, and carries a code from one catalog.
+        Clients branch on code and never on title or detail prose. Unknown members
+        are ignored by RFC 9457, so a later code or parameter is an additive change.
+      required: [status, code]
+      properties:
+        type:
+          type: string
+          format: uri
+          default: 'about:blank'
+        title:
+          type: string
+          description: Human-readable prose. Not stable; never branch on it.
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+          description: Human-readable prose. Not stable; never branch on it.
+        instance:
+          type: string
+          format: uri-reference
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        correlationId:
+          type: string
+          format: uuid
+          description: >-
+            Present on INTERNAL_ERROR only. The identifier that retrieves the log
+            event for this failure, and the only internal detail a 500 exposes.
+        violation:
+          type: string
+          description: >-
+            Present on LIMIT_ABOVE_MAXIMUM only. Which bound the limit broke, so a
+            client library can repair the request rather than retry it unchanged.
+          enum: [ABOVE_MAX, BELOW_MIN, NOT_AN_INTEGER]
+        min:
+          type: integer
+          format: int32
+          description: Present on LIMIT_ABOVE_MAXIMUM only. The lowest limit the contract admits.
+        max:
+          type: integer
+          format: int32
+          description: Present on LIMIT_ABOVE_MAXIMUM only. The highest limit the contract admits.
+      examples:
+        - type: 'about:blank'
+          title: Not Found
+          status: 404
+          detail: No product family holds that identifier.
+          instance: /v1/product-families/0192f3a1-6c7d-7c3e-9f21-4b7c1d2e3f40
+          code: FAMILY_NOT_FOUND
+    ErrorCode:
+      type: string
+      description: >-
+        The closed catalog of machine-readable error codes. Adding, removing or
+        re-typing a member is a change to this contract and to the committed
+        catalog snapshot.
+      enum:
+        - FAMILY_CODE_INVALID
+        - FAMILY_NAME_INVALID
+        - FAMILY_CODE_DUPLICATE
+        - FAMILY_NOT_FOUND
+        - LIMIT_ABOVE_MAXIMUM
+        - CURSOR_INVALID
+        - STATUS_FILTER_INVALID
+        - INTERNAL_ERROR
+      examples: [FAMILY_NOT_FOUND]
