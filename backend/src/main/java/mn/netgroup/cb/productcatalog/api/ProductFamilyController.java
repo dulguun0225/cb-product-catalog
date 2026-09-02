@@ -151,6 +151,29 @@ public class ProductFamilyController {
         }
     }
 
+    /** FR-010, FR-011, FR-013, FR-019. */
+    @PostMapping("/{id}/retire")
+    @Operation(
+            operationId = "retireProductFamily",
+            summary = "Retire a product family",
+            description =
+                    "Transitions an ACTIVE family to RETIRED. RETIRED is terminal: a retire request"
+                            + " against an already RETIRED family is idempotent and returns that"
+                            + " family unchanged, including its updatedAt. There is no request body"
+                            + " and no operation that returns a family to ACTIVE.",
+            extensions =
+                    @Extension(
+                            properties =
+                                    @ExtensionProperty(
+                                            name = "x-requirements",
+                                            value =
+                                                    "[\"FR-010\",\"FR-011\",\"FR-013\",\"FR-019\","
+                                                            + "\"FR-023\"]",
+                                            parseValue = true)))
+    public ProductFamilyView retire(@PathVariable("id") String id) {
+        return ProductFamilyView.of(service.retire(identifierOf(id)));
+    }
+
     /**
      * Reads the {@code {id}} path segment.
      *
