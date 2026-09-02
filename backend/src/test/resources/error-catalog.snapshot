@@ -1,0 +1,15 @@
+# PLATFORM-14 · 001-product-family-catalog · the committed error-catalog snapshot.
+#
+# One line per catalog member: code|http-status|comma-separated parameter names.
+# java-backend-api, "The catalog is snapshotted and diffed": the error catalog is API surface a
+# structural OpenAPI diff cannot see, so adding, removing or re-typing a code is a git-visible
+# re-approval. This file is the diff target. Regenerating it to make a test pass is the failure
+# it exists to prevent — a change here is a change to the committed contract's ErrorCode enum.
+CURSOR_INVALID|400|
+FAMILY_CODE_DUPLICATE|409|
+FAMILY_CODE_INVALID|400|
+FAMILY_NAME_INVALID|400|
+FAMILY_NOT_FOUND|404|
+INTERNAL_ERROR|500|correlationId
+LIMIT_ABOVE_MAXIMUM|400|violation,min,max
+STATUS_FILTER_INVALID|400|
