@@ -65,7 +65,11 @@
     <dependency>
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
-      <scope>runtime</scope>
+      <!--
+        Compile scope, not runtime: persistence/Tx reads the constraint name off the driver's
+        own PSQLException so that FR-018's duplicate mapping is by constraint name rather than
+        by matching a message. The coupling is confined to the one transaction seam.
+      -->
     </dependency>
     <dependency>
       <groupId>org.springdoc</groupId>
