@@ -3,6 +3,7 @@ package mn.netgroup.cb.productcatalog;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.jooq.JooqAutoConfiguration;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
 /**
  * Entry point of the product family catalog service (CB_PRODUCT_CATALOG).
@@ -14,6 +15,7 @@ import org.springframework.boot.autoconfigure.jooq.JooqAutoConfiguration;
  * predicate. {@code persistence/Tx} builds its own context from the {@code DataSource}.
  */
 @SpringBootApplication(exclude = JooqAutoConfiguration.class)
+@ConfigurationPropertiesScan
 public class ProductCatalogApplication {
 
     public static void main(String[] args) {

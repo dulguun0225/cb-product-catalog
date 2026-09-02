@@ -2,7 +2,6 @@ package mn.netgroup.cb.productcatalog.api.error;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
-import java.util.Map;
 import java.util.UUID;
 import mn.netgroup.cb.productcatalog.ids.FamilyIds;
 import org.springframework.http.HttpHeaders;
@@ -34,11 +33,6 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @RestControllerAdvice
 public class ProblemAdvice extends ResponseEntityExceptionHandler {
 
-    /** FR-020's bounds, and the two members a client repairs its request from. */
-    static final int LIMIT_MINIMUM = 1;
-
-    static final int LIMIT_MAXIMUM = 100;
-
     private final ProblemDocuments problems;
     private final ErrorLog errorLog;
     private final FamilyIds ids;
@@ -64,7 +58,7 @@ public class ProblemAdvice extends ResponseEntityExceptionHandler {
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ProblemDetail> onUnbindableParameter(
             MethodArgumentTypeMismatchException mismatch, HttpServletRequest request) {
-        return forParameter(mismatch.getName(), "NOT_AN_INTEGER")
+        return forParameter(mismatch.getName(), LimitViolation.NOT_AN_INTEGER)
                 .map(failure -> onCatalogFailure(failure, request))
                 .orElseGet(() -> onAnythingElse(mismatch, request));
     }
@@ -107,7 +101,7 @@ public class ProblemAdvice extends ResponseEntityExceptionHandler {
                 .flatMap(result -> result.getResolvableErrors().stream())
                 .anyMatch(error -> String.valueOf(error.getCodes() == null ? "" : java.util.Arrays.toString(error.getCodes()))
                         .contains("Min"));
-        return belowMinimum ? "BELOW_MIN" : "ABOVE_MAX";
+        return belowMinimum ? LimitViolation.BELOW_MIN : LimitViolation.ABOVE_MAX;
     }
 
     private static HttpServletRequest servletRequestOf(WebRequest request) {
@@ -141,15 +135,9 @@ public class ProblemAdvice extends ResponseEntityExceptionHandler {
             return java.util.Optional.of(new CatalogFailure(ErrorCode.STATUS_FILTER_INVALID));
         }
         if ("limit".equals(parameterName)) {
-            return java.util.Optional.of(limitOutOfBounds(violation));
+            return java.util.Optional.of(LimitViolation.failure(violation));
         }
         return java.util.Optional.empty();
-    }
-
-    static CatalogFailure limitOutOfBounds(String violation) {
-        return new CatalogFailure(
-                ErrorCode.LIMIT_ABOVE_MAXIMUM,
-                Map.of("violation", violation, "min", LIMIT_MINIMUM, "max", LIMIT_MAXIMUM));
     }
 
     private static URI instanceOf(HttpServletRequest request) {
