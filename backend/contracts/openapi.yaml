@@ -22,7 +22,7 @@ info:
     readable JSON, 405, 406, 415 - are RFC 9457 problem documents with the right
     status, but the approved error-code catalog has no member for them, so they
     carry no code member. They are therefore not declared as responses on the
-    operations below. See the design's OI-003 and decision D-08.
+    operations below. See the design's OI-006 and decision D-08.
 tags:
   - name: Product families
     description: Registration, retrieval, listing and retirement of product families.
@@ -431,10 +431,18 @@ components:
     Problem:
       type: object
       description: >-
-        An RFC 9457 problem document. Every error response this service returns has
-        this shape, is built in one place, and carries a code from one catalog.
+        An RFC 9457 problem document. Every error response **declared on the
+        operations in this document** has this shape, is built in one place, and
+        carries a code from one catalog, so a client may branch on code alone.
         Clients branch on code and never on title or detail prose. Unknown members
         are ignored by RFC 9457, so a later code or parameter is an additive change.
+        Scope, stated because the difference is not visible from the schema: the
+        framework-produced failures named in info.description - 400 on a body that
+        is not readable JSON, 405, 406, 415 - are problem documents of this shape
+        with no code member, and they are not declared as responses on any
+        operation here. A generated client must not assume that every
+        problem+json body it can receive satisfies this schema until the design's
+        OI-006 is answered.
       required: [status, code]
       properties:
         type:

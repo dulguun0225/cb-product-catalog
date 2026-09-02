@@ -43,13 +43,21 @@ an arrow not listed here is a layer-boundary finding at code review.
 
 | Module | Responsibility | Depends on | Tasks |
 |---|---|---|---|
-| `config/` | `TimeConfig` — the one `Clock` bean. `OpenApiConfig` — document metadata, the one `OpenApiCustomizer` (D-05, D-06), the `EndpointMediaTypes` bean. `application.yml` — virtual threads, ECS structured logging, health exposure. | — | T-001, T-010, T-011 |
-| `ids/` | `FamilyIds` — **the one identifier producer**, wrapping `java-uuid-generator`'s `timeBasedEpochGenerator()`; and `FamilyIds.parse(String) : Optional<UUID>`, the one reader of an identifier off the wire (D-03). | — | T-003 |
-| `domain/` | `FamilyCode` (value type; its only factory rejects anything outside `[A-Z0-9]{3,20}`), `FamilyStatus`, `ProductFamily`, `ProductFamilyService` — the only caller of the repository. | `ids/`, `persistence/`, `Clock` | T-005 |
-| `persistence/` | `Tx` — **the one transaction seam**, `read(Function<DSLContext,T>)` / `write(…)`; read-only intent is the method name, never an annotation; `DSLContext` is not an injectable bean. `ProductFamilyRepository` — explicit jOOQ DSL statements only. | generated jOOQ | T-004 |
+| `config/` | `TimeConfig` — the one `Clock` bean, `Clock.systemUTC()`. `OpenApiConfig` — the document's `info` block exactly as the contract carries it, the one `OpenApiCustomizer` (D-05, D-06), the `EndpointMediaTypes` bean. `application.yml` — `spring.threads.virtual.enabled=true`, `logging.structured.format.console=ecs`, `springdoc.api-docs.version=openapi_3_1`, `springdoc.show-actuator=false`, `management.endpoints.web.exposure.include=health`, `management.endpoint.health.show-details=never`, `management.endpoint.health.show-components=never`, and `catalog.cursor.keys` (D-09). | — | T-001, T-010, T-011 |
+| `ids/` | `FamilyIds` — **the one identifier producer**: one singleton `NoArgGenerator` from `Generators.timeBasedEpochGenerator()`, thread-safe so one instance serves every virtual thread, exposing `next() : UUID`; and `parse(String) : Optional<UUID>`, the one reader of an identifier off the wire (D-03). | — | T-003 |
+| `domain/` | `FamilyCode` — value type, sole factory `of(String)`, rejecting anything outside `[A-Z0-9]{3,20}`. `FamilyStatus` — enum of `ACTIVE` and `RETIRED`. `ProductFamily` — record `(UUID id, FamilyCode familyCode, String name, FamilyStatus status, Instant createdAt, Instant updatedAt)`. `ProductFamilyService` — `create`, `findById`, `list`, `retire`; **the only caller of the repository**. | `ids/`, `persistence/`, `Clock` | T-005 |
+| `persistence/` | `Tx` — **the one transaction seam**: `<T> T read(Function<DSLContext,T>)` and `<T> T write(Function<DSLContext,T>)`, each opening one transaction at PostgreSQL's default READ COMMITTED and translating jOOQ exceptions at its boundary; read-only intent is the method name, never an annotation; `DSLContext` is not an injectable bean. `ProductFamilyRepository` — `insert`, `findById` (`fetchOptional`), `findPage(status, afterFamilyCode, afterId, limit)`, `retireIfActive(id, updatedAt)`; explicit jOOQ DSL statements only. | generated jOOQ | T-004 |
 | `api/` | `ProductFamilyController` — the only class that knows HTTP. `KeysetPager` — **the one class rendering a paginated query**. `CursorCodec` — **the one class encoding or decoding a cursor**. | `domain/`, `api/error/` | T-007, T-008, T-009 |
-| `api/error/` | `ErrorCode` — the compile-checked catalog. `ProblemDocuments` — **the one factory that builds an error body**. `ProblemAdvice` and `ErrorPathController` — its only two callers. `CorrelationIdFilter` — mints the correlation id first in the chain. `ErrorLog` — **the one typed logging facade** (D-07, D-11). | `ErrorCode` only | T-006 |
+| `api/error/` | `ErrorCode` — the compile-checked catalog: a Java `enum` of the eight members §4 names, each carrying its HTTP status and its typed parameter names. `ProblemDocuments` — **the one factory that builds an error body**. `ProblemAdvice` and `ErrorPathController` (which serves the `/error` dispatch) — its only two callers. `CorrelationIdFilter` — mints the correlation id first in the chain. `ErrorLog` — **the one typed logging facade**, one method `internalError(UUID correlationId, Throwable cause)` (D-07, D-11). | `ErrorCode` only | T-006 |
 | `db/migration/` | `V1__product_family.sql` — the one schema statement; jOOQ generates from it via `DDLDatabase`. | — | T-002 |
+
+Every *italicised rule name* in this document is a directive of an installed platform rule set,
+cited by skill and subject because those rule sets number nothing: `java-backend-rules` (persistence,
+the transaction seam, the concurrency model, the ban list), `java-backend-api` (the HTTP contract,
+paging, problem documents, versioning), `java-backend-observability` (logging and alerting),
+`primary-keys`, `business-numbering`, `caching`, `async-handoff`, `llm-default-traps` and
+`backend-stack`. They are installed one directory above this repository and are the authority for
+every technology rule applied below.
 
 **Seams the platform rules require exactly one of, and where each is.** Transaction seam →
 `persistence/Tx` (*SQL is reached only through the one transaction seam*). Key producer →
@@ -62,7 +70,7 @@ an executable test class*).
 
 **Seams that are dormant, each with the precondition that makes it so — not skipped.** Fan-out
 helper: no in-request fan-out exists, and the ban half stays live. Plain-SQL seam: zero plain-SQL
-constructs, so the ban is unconditional and there is no `@Allow.PlainSQL` scope. Cache adapter:
+constructs, so the ban is unconditional and no scope carries jOOQ's `@Allow.PlainSQL`. Cache adapter:
 `caching` is installed, nothing here caches, and the `@Cacheable` family ban stays live with no
 adapter behind it. Messaging adapter: plan §4 declares no asynchronous contract, so
 `async-handoff` is dormant and the `@Scheduled` / `@Async` ban stays live. Number issuer: the
@@ -111,11 +119,16 @@ so the erasure class of this table is "nothing to erase".
 **The absent schema default is a named gap, not a formality.** *The schema default is the backstop,
 and the banned generator is named beside it* wants the generator as the column default so operator
 SQL cannot write a wrong id; native `uuidv7()` is a PostgreSQL **18** function and this deployment
-is pinned to 16, so no native generator exists and the backstop is absent. Exposure: a row written
+is pinned to 16, so no native generator exists and the backstop is absent. **This corrects plan §5
+and §9, which name `uuidv7()` as "a PostgreSQL 16 function this engine does not have"** — the
+conclusion is the same and the version is not, and the difference decides when the gap can close:
+not by a PostgreSQL 16 patch or a configuration change, only by a move to a major version that has
+the function. Recorded as a divergence, not applied silently; see D-13. Exposure: a row written
 by a later migration, a repair script, or a session at a database prompt can carry a null or a v4
 id, and the first symptom is a scattered index nobody attributes to this decision. Mitigation is one
 test only — `FamilyIdsGoldenTest` pins the emitted layout (version nibble 7, variant bits, the
-leading 48-bit timestamp increasing under a fixed clock) — and it reaches application writes, not
+leading 48-bit timestamp increasing across successive calls under a `Clock.fixed` the test supplies)
+— and it reaches application writes, not
 operator writes. Recorded as ungated in §7.
 
 **`family_code` is a business number this system does not issue.** Live clauses: *Numbers are
@@ -141,7 +154,16 @@ costs **zero** sequence-reset steps.
 
 ## 4. Interfaces
 
-An index only. The content is in the contract files, which are the authority.
+An index only. Every schema, parameter, example and error declaration lives in the contract files,
+which are the authority; this section does not restate them.
+
+The five operations, by the `operationId` D-06's map is keyed on: `createProductFamily`
+(`POST /v1/product-families`), `getProductFamily` (`GET /v1/product-families/{id}`),
+`listProductFamilies` (`GET /v1/product-families?status=&limit=&cursor=`), `retireProductFamily`
+(`POST /v1/product-families/{id}/retire`), `health` (`GET /actuator/health`). The eight `ErrorCode`
+members are `FAMILY_CODE_INVALID`, `FAMILY_NAME_INVALID`, `FAMILY_CODE_DUPLICATE`,
+`FAMILY_NOT_FOUND`, `LIMIT_ABOVE_MAXIMUM`, `CURSOR_INVALID`, `STATUS_FILTER_INVALID`,
+`INTERNAL_ERROR`.
 
 | File | Version | Operations | Requirements covered |
 |---|---|---|---|
@@ -160,7 +182,7 @@ each.
 
 The four flows that cross a module or a process boundary, drawn as sequences in `lld.html` panel ③.
 
-**F-1 — create (T-007).** ① `ProductFamilyController` binds the request record. ② It calls
+**F-1 — create (T-007), `POST /v1/product-families`.** ① `ProductFamilyController` binds the request record. ② It calls
 `FamilyCode.of(raw)` and the name-length check **before any repository call** — malformed code →
 400 `FAMILY_CODE_INVALID`, malformed name → 400 `FAMILY_NAME_INVALID`. ③ `ProductFamilyService.create`
 takes an identifier from `FamilyIds.next()` and one `Instant` from the injected `Clock`, writing it
@@ -170,26 +192,32 @@ by constraint name, and renaming that index in a later migration silently degrad
 the integration test that inserts the same code twice is the only thing that catches it. ⑥ 201, with
 `Location: /v1/product-families/{id}` and the family body.
 
-**F-2 — one keyset page (T-008).** ① `limit` is validated against `[1, 100]`; any value the bounds do
+**F-2 — one keyset page (T-008), `GET /v1/product-families`.** ① `limit` defaults to **20** when the
+parameter is absent, and is validated against `[1, 100]` when present; any value the bounds do
 not admit → 400 `LIMIT_ABOVE_MAXIMUM` with `violation` ∈ {`ABOVE_MAX`, `BELOW_MIN`, `NOT_AN_INTEGER`}
-and the `min`/`max` members (D-04). It is never clamped and never silently defaulted. ② `status`
-outside `{ACTIVE, RETIRED}` → 400 `STATUS_FILTER_INVALID`. ③ `CursorCodec.decode` checks the seal and
-requires the carried sort specification to equal `familyCode,id`; either failure → 400
-`CURSOR_INVALID`, never a best-effort seek. ④ `KeysetPager` renders
-`WHERE (family_code, id) > (?, ?) ORDER BY family_code, id LIMIT limit + 1` inside one `Tx.read`;
-absent `status` adds no predicate, present `status` adds one equality. ⑤ The `(limit+1)`-th row's
+and the `min`/`max` members (D-04). A value that is not a base-10 integer, one beyond a 32-bit
+integer, an empty `limit=`, and a repeated `limit` parameter are all `NOT_AN_INTEGER`. It is never
+clamped, and an out-of-bounds value is never quietly replaced by the default. ② `status`
+outside `{ACTIVE, RETIRED}` → 400 `STATUS_FILTER_INVALID`. ③ `CursorCodec.decode` checks the seal and requires the
+carried sort specification to equal the wire literal `familyCode,id`, whose SQL columns are
+`(family_code, id)`; either failure → 400 `CURSOR_INVALID`, never a best-effort seek.
+④ `KeysetPager` renders `ORDER BY family_code, id LIMIT limit + 1` inside one `Tx.read`, adding
+`WHERE (family_code, id) > (?, ?)` **only when a cursor was supplied** — the first page carries no
+such predicate; absent `status` adds no predicate, present `status` adds one equality. ⑤ The `(limit+1)`-th row's
 presence — and only that — issues `nextCursor`; otherwise it is `null`. **This page is not a
 snapshot**: a family created after the first page may appear on a later one. Immunity is to skipping
 and duplication only, and it holds because `(family_code, id)` is a unique total order.
 
-**F-3 — retire, idempotently (T-009).** One `Tx.write` containing both statements — for connection
+**F-3 — retire, idempotently (T-009), `POST /v1/product-families/{id}/retire`.** One `Tx.write` containing both statements — for connection
 and seam hygiene, **not** because it removes an interleaving: at PostgreSQL's default READ COMMITTED
 each statement takes a fresh snapshot, so the re-read sees concurrently committed rows either way.
 ① `UPDATE … SET status='RETIRED', updated_at=? WHERE id=? AND status='ACTIVE' RETURNING …`.
 ② One row → 200 with the returned values (FR-010). ③ Zero rows is a **signal, never a no-op**:
 re-read and branch on `status`, not on presence — absent → 404 `FAMILY_NOT_FOUND` (FR-019);
 `RETIRED` → 200 with the **persisted** `updated_at`, never one stamped from `Clock` (FR-011);
-`ACTIVE` → retry the guarded update once, then 500 `INTERNAL_ERROR`. That last branch is reachable
+`ACTIVE` → retry the guarded update once, immediately and inside the same transaction; if the retry
+also affects zero rows the service stops rather than looping, and answers 500 `INTERNAL_ERROR`.
+That last branch is reachable
 only if a row is inserted under the same id between the two statements, and is written because
 inferring "found ⇒ already retired" from presence alone would report a live family as retired.
 Two concurrent retires of an `ACTIVE` row cannot both see zero rows: READ COMMITTED re-evaluates the
@@ -199,8 +227,10 @@ serialization failure instead of zero rows, turning an idempotent retire into an
 must retry.
 
 **F-4 — an unhandled failure (T-006).** ① `CorrelationIdFilter`, ordered `HIGHEST_PRECEDENCE`, mints
-the correlation id, puts it in the logging context in a `try`/`finally`, and exposes it as a request
-attribute. ② `ProblemAdvice` reads that attribute — it never mints its own — asks `ErrorLog` to emit
+a fresh UUIDv7 correlation id — an inbound header never supplies one, so a client cannot choose it —
+puts it in the SLF4J mapped diagnostic context under the key `correlation_id` in a `try`/`finally`,
+and exposes it as the request attribute `catalog.correlationId`. Elastic Common Schema serialises
+the mapped diagnostic context into the JSON event, which is what makes the id retrievable. ② `ProblemAdvice` reads that attribute — it never mints its own — asks `ErrorLog` to emit
 **one** ECS JSON event at ERROR carrying the id and the throwable, and asks `ProblemDocuments` for the
 body. ③ The response is `500` `application/problem+json` with `code: INTERNAL_ERROR` and
 `correlationId`, and **no exception message, class name or stack frame** (FR-023). ④ A failure thrown
@@ -227,8 +257,12 @@ records the same. The only surface an integrator reads is `backend/contracts/ope
 | NFR | Mechanism | Configuration value | Gate that checks it |
 |---|---|---|---|
 | NFR-001 read latency p95 ≤ 200 ms at 50 rps | Virtual threads (`spring.threads.virtual.enabled=true`), one indexed primary-key lookup per request, no N+1 by construction (one statement per operation) | p95 threshold 200 ms; 50 rps for 60 s | `perf/GetFamilyLatencyTest` (T-012), hosted by `./mvnw verify`, reading the p95 of `http.server.requests`. **Scope caveat:** it measures the build machine, not the dev deployment the spec scopes; read the number as a floor. |
-| NFR-002 every log line parses as one JSON object | Spring Boot's own structured logging; one typed facade so no raw logger or `System.out` can emit | `logging.structured.format.console=ecs` | `config/StructuredLogFormatTest` (T-001) over captured output, plus the ArchUnit standard-streams and raw-logger bans in `BanListTest` (T-010). The config check reads the **checked-in default**, which an environment variable can still override at runtime. |
+| NFR-002 every log line parses as one JSON object | Spring Boot's own structured logging in Elastic Common Schema (ECS) form; one typed facade, so no raw logger or `System.out` can emit | `logging.structured.format.console=ecs` | `config/StructuredLogFormatTest` (T-001) over captured output, plus the ArchUnit standard-streams and raw-logger bans in `BanListTest` (T-010). The config check reads the **checked-in default**, which an environment variable can still override at runtime. |
 | NFR-003 zero committed credentials | No secret is committed; the cursor sealing key arrives from the environment and has no default; tests generate their own key per test class, so no key literal exists in the repository at all | 0 findings; `.env` in `.gitignore` | `NoCommittedSecretsTest` (T-012) |
+
+A **gate** below is a check that fails `./mvnw verify`; a rule with no such check is **ungated**;
+a **host** is the tool that runs one. Test classes suffixed `IT` are integration tests bound to the
+failsafe plugin's `verify` phase, the rest run under surefire's `test` phase.
 
 **Contract and platform gates, and their hosts.** Regenerate-and-diff: `OpenApiContractDriftTest`
 (T-010) boots the application, regenerates twice under varied default time zone and locale,
@@ -265,7 +299,7 @@ ArchUnit half; the lint over committed query text, views and functions does not 
 **no native lockfile**, so there is no lockfile gate and pin discipline is exact versions in
 `pom.xml` plus the Boot BOM; Maven Enforcer (`requireJavaVersion`, `banDynamicVersions`) is **not
 wired** because naming a new plugin version would require a registry verification this stage may not
-perform — OI-004. ⑤ Container images are tag-pinned, not digest-pinned (plan §9 declined digest
+perform — OI-009. ⑤ Container images are tag-pinned, not digest-pinned (plan §9 declined digest
 pinning). ⑥ The migrations-are-the-complete-schema drift check does not exist. ⑦ The configuration
 lint for the runtime-silent ban list — a scheduler or cache manager declared in YAML rather than by
 annotation — does not exist. ⑧ JaCoCo coverage floor and pitest are not wired (plan §9). ⑨ That
@@ -323,18 +357,20 @@ Every active requirement, once.
 | D-05 | `springdoc.show-actuator` stays off; one owned `OpenApiCustomizer` in `OpenApiConfig` `put`s `/actuator/health` into the document, and an `EndpointMediaTypes` bean makes `application/json` the only produced type; `management.endpoint.health.show-details=never` and `show-components=never` | **NEW — proposed** | Springdoc's actuator rendering mangles the `operationId` for uniqueness and emits vendor media types, both of which move under a springdoc bump and flap the byte-identity gate. Correction found in refutation: actuator's default produced types list `application/vnd.spring-boot.actuator.v3+json` **first**, so a client sending `Accept: */*` gets the vendor type — a hand-written `application/json` contract would have been false. The bean makes it true. Rejected: listing both vendor types instead, which ships the springdoc-owned shape into the contract. |
 | D-06 | The same customizer stamps `x-requirements` on every operation from one immutable `List.of` map | **NEW — proposed** | Kept because it is the only mechanism that reaches the annotation-less health path — **not** because annotations cannot express arrays; `@ExtensionProperty(parseValue = true)` renders a real array, and under `openapi_3_1` the `x-` prefix is not auto-prepended either way. A map keyed by `operationId` is fail-open, so the drift test also asserts non-empty coverage, orphan-free keys, and equality with the FR set §4 names. |
 | D-07 | The correlation id is minted by a `HIGHEST_PRECEDENCE` `OncePerRequestFilter` into the logging context and a request attribute; `ProblemAdvice` reads it; `ProblemDocuments` is the one body factory and `ErrorPathController` its second caller | **NEW — proposed** | `@RestControllerAdvice` is part of dispatcher exception resolution and never sees a throwable from a servlet filter or the `/error` dispatch — minting the id in the advice would leave exactly the uncoded, id-less 500 the observability rule exists to prevent. ECS structured logging already serialises the logging context, so the filter costs one `try`/`finally`; with virtual threads there is no pool and no cross-request bleed. The test asserts the id read from a 500 body retrieves a captured log event, driven through a **throwing filter**, not only a throwing handler. |
-| D-08 | The protocol-level failures the framework produces before an operation is entered — 400 on an unreadable JSON body, 405, 406, 415 — are RFC 9457 documents with the right status but **carry no `code`** | **`blocked`** | This is a defect in the approved artifacts, not a design choice: FR-015 requires every error response to carry a code, and T-006 enumerates a catalog of exactly eight that has no member for these. Every resolution edits an approved document, which this stage may not do. Proposed fix, for a re-signed spec and task list: one further member covering them. Question for the requester in OI-001. |
-| D-09 | The cursor payload carries a key identifier and `CursorCodec` accepts a map of keys, so the sealing key rotates without invalidating issued cursors; structural validation (known version, sort spec equal to the request's, parseable id, code within its bound) runs independently of the seal; the key is a required property with no default, and tests generate their own per test class | **NEW — proposed** | Sealing itself is plan §9's decision and `java-backend-api`'s *Cursors are opaque, sealed, and carry their sort spec*, which this design does not reopen. What refutation added and this design adopts: without a key identifier the scheme has no rotation story, so the key would never be rotated and the property it seals for would be forfeited by construction; and the structural validation is required whether or not the payload is sealed. Recorded honestly: the cursor is **sealed, not opaque** — a client can read the sort spec and the last row's values out of it, cannot forge one, and forging one would grant no read the caller does not already have. See OI-002. |
+| D-08 | The protocol-level failures the framework produces before an operation is entered — 400 on an unreadable JSON body, 405, 406, 415 — are RFC 9457 documents with the right status but **carry no `code`** | **`blocked`** | This is a defect in the approved artifacts, not a design choice: FR-015 requires every error response to carry a code, and T-006 enumerates a catalog of exactly eight that has no member for these. Every resolution edits an approved document, which this stage may not do. Proposed fix, for a re-signed spec and task list: one further member covering them. Question for the requester in OI-006. |
+| D-09 | The cursor payload carries a key identifier and `CursorCodec` accepts a map of keys, so the sealing key rotates without invalidating issued cursors; structural validation (known version, sort spec equal to the request's, parseable id, code within its bound) runs independently of the seal; the key is a required property with no default, and tests generate their own per test class | **NEW — proposed** | Sealing itself is plan §9's decision and `java-backend-api`'s *Cursors are opaque, sealed, and carry their sort spec*, which this design does not reopen. What refutation added and this design adopts: without a key identifier the scheme has no rotation story, so the key would never be rotated and the property it seals for would be forfeited by construction; and the structural validation is required whether or not the payload is sealed. Recorded honestly: the cursor is **sealed, not opaque** — a client can read the sort spec and the last row's values out of it, cannot forge one, and forging one would grant no read the caller does not already have. See OI-007. |
 | D-10 | Retire is `UPDATE … RETURNING` plus a conditional re-read in one `Tx.write`; the zero-row branch decides on `status`, not on presence; `updatedAt` on the idempotent path is the persisted value | **NEW — proposed** | The transaction is connection and seam hygiene, **not** interleaving removal: READ COMMITTED takes a fresh snapshot per statement, so the re-read sees committed concurrent work either way; what makes the outcome stable is that rows are never deleted and `ACTIVE → RETIRED` is terminal. Inferring "found ⇒ already retired" from presence alone reports a live family as retired if a row is inserted under the same id between the statements. Rejected: raising isolation, which converts the loser's zero rows into a serialization failure. |
 | D-11 | One owned `ErrorLog` facade is the only application class that emits a log event; raw logger types, `System.out`/`System.err` and `printStackTrace` are ArchUnit-banned | **NEW — proposed** | *One typed logging facade*. This feature emits exactly one application log event, so the facade is one type with one method — the full event and metric catalogs, the fan-out context capture and the cardinality budget are dormant or deferred, each recorded in §7. |
 | D-12 | Java 21 / Spring Boot 3.5.16, jOOQ 3.21.7, Flyway 13.4.0, springdoc 2.9.0, `java-uuid-generator` 5.2.0, Testcontainers 1.21.4, ArchUnit 1.5.0, Maven 3.9.16, `postgres:16.15-alpine`, `eclipse-temurin:21-jre-alpine` | `derived` | plan §9, each verified on its registry on 2026-09-02. The Java 21 and Boot 3.x pins diverge from *The pin is created at the newest supported LTS* and plan §9 records the requester as the reason. This design names **no new dependency and no new version**: this stage has no registry to verify against, so a pin it invented would be unverified by construction. |
+
+| D-13 | `uuidv7()` is a PostgreSQL **18** function, not a PostgreSQL 16 one | **NEW — proposed**, correcting plan §5 and §9 | The plan's conclusion — that this deployment has no native generator and the column default is absent — is unchanged and correct; only the version is wrong, and it is the version that says when the gap can close. Recorded here rather than applied silently, because a plan statement this design overrides is a plan that needs re-signing. `primary-keys`, *The schema default is the backstop, and the banned generator is named beside it*, is the source: *"Native `uuidv7()` is a PostgreSQL 18 function."* |
 
 **Open items.**
 
 | ID | Item | Owner | Blocks |
 |---|---|---|---|
-| OI-001 | **D-08.** Four framework-produced failures (400 unreadable body, 405, 406, 415) have no member in the approved eight-code catalog, so they cannot carry a `code` and FR-015 is not fully true. Extend the catalog by one member — which requires re-signing `spec.md` FR-015 and `tasks.md` T-006 — or accept these four as coded-exempt and say so in the spec? | requester | FR-015 and SC-003 being fully true; nothing else |
-| OI-002 | **D-09.** The cursor payload carries only the sort spec and the last row's `family_code` and `id` — all values the client just received in the response body — so the HMAC protects integrity of data that confers no authority. Is the sealing key, and the operational cost of a required secret in every environment, worth keeping at this stage? Re-signing plan §9 is the only way to drop it. | plan owner | nothing — the design implements the plan as signed |
-| OI-003 | The spec's `OI-001` (family-code character set), `OI-002` (`limit` default and maximum) and `OI-003` (whether an unfiltered list includes `RETIRED`) are still open. This design and the contract encode the spec's proposed values: `[A-Z0-9]{3,20}`, 20/100, and both statuses. A different answer changes §3, §5 F-2, FR-006, FR-016, FR-020 and the contract together. | domain owner | nothing yet — the values are decided, not undecided |
-| OI-004 | Maven Enforcer (`requireJavaVersion`, `banDynamicVersions`) is the off-the-shelf host for the floating-version ban and is not in the plan's dependency set. Adding it means pinning a plugin version, and this stage may not verify one on a registry. | plan owner | the floating-version ban having a host rather than a convention |
-| OI-005 | The repository still has no tier-map file, so plan §7's entries are declared and unapplied (plan `PI-001`). Unchanged by this design; restated because an undeclared path routes to T1 at merge. | platform owner | tier-map completeness at merge |
+| OI-006 | **D-08.** Four framework-produced failures (400 unreadable body, 405, 406, 415) have no member in the approved eight-code catalog, so they cannot carry a `code` and FR-015 is not fully true. Extend the catalog by one member — which requires re-signing `spec.md` FR-015 and `tasks.md` T-006 — or accept these four as coded-exempt and say so in the spec? | requester | FR-015 and SC-003 being fully true; nothing else |
+| OI-007 | **D-09.** The cursor payload carries only the sort spec and the last row's `family_code` and `id` — all values the client just received in the response body — so the HMAC protects integrity of data that confers no authority. Is the sealing key, and the operational cost of a required secret in every environment, worth keeping at this stage? Re-signing plan §9 is the only way to drop it. | plan owner | nothing — the design implements the plan as signed |
+| OI-008 | The spec's `OI-001` (family-code character set), `OI-002` (`limit` default and maximum) and `OI-003` (whether an unfiltered list includes `RETIRED`) are still open. This design and the contract encode the spec's proposed values: `[A-Z0-9]{3,20}`, 20/100, and both statuses. A different answer changes §3, §5 F-2, FR-006, FR-016, FR-020 and the contract together. | domain owner | nothing yet — the values are decided, not undecided |
+| OI-009 | Maven Enforcer (`requireJavaVersion`, `banDynamicVersions`) is the off-the-shelf host for the floating-version ban and is not in the plan's dependency set. Adding it means pinning a plugin version, and this stage may not verify one on a registry. | plan owner | the floating-version ban having a host rather than a convention |
+| OI-010 | The repository still has no tier-map file, so plan §7's entries are declared and unapplied (plan `PI-001`). Unchanged by this design; restated because an undeclared path routes to T1 at merge. | platform owner | tier-map completeness at merge |
