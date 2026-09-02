@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PLATFORM-14 · 001-product-family-catalog · backend build.
+
+  Every version below is an exact pin taken from plan.md §9, which verified each one on
+  Maven Central on 2026-09-02. No range, no LATEST, no version resolved at build time
+  (java-backend-rules, "The pin is created at the newest supported LTS, and after that it
+  is the pin"). Java 21 and the Spring Boot 3.x line diverge from that rule's "newest LTS"
+  clause; plan §9 records the requester as the reason.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.5.16</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>mn.netgroup.cb</groupId>
+  <artifactId>cb-product-catalog</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <name>cb-product-catalog</name>
+  <description>Product family catalog — CB_PRODUCT_CATALOG</description>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!-- Overrides of the Boot BOM, each pinned by plan §9. -->
+    <jooq.version>3.21.7</jooq.version>
+    <flyway.version>13.4.0</flyway.version>
+
+    <!-- Not managed by the Boot BOM. -->
+    <springdoc.version>2.9.0</springdoc.version>
+    <java-uuid-generator.version>5.2.0</java-uuid-generator.version>
+    <testcontainers.version>1.21.4</testcontainers.version>
+    <archunit.version>1.5.0</archunit.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jooq</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+      <version>${springdoc.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.uuid</groupId>
+      <artifactId>java-uuid-generator</artifactId>
+      <version>${java-uuid-generator.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <version>${archunit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+
+      <!--
+        jOOQ classes are generated from the committed migrations (java-backend-rules).
+        The input is DDLDatabase over the committed Flyway files — a pure function of
+        committed bytes. Plan §9 records this divergence from that rule's throwaway
+        container, and that the input set is identical.
+      -->
+      <plugin>
+        <groupId>org.jooq</groupId>
+        <artifactId>jooq-codegen-maven</artifactId>
+        <version>${jooq.version}</version>
+        <executions>
+          <execution>
+            <id>generate-jooq-sources</id>
+            <phase>generate-sources</phase>
+            <goals><goal>generate</goal></goals>
+          </execution>
+        </executions>
+        <dependencies>
+          <dependency>
+            <groupId>org.jooq</groupId>
+            <artifactId>jooq-meta-extensions</artifactId>
+            <version>${jooq.version}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <generator>
+            <database>
+              <name>org.jooq.meta.extensions.ddl.DDLDatabase</name>
+              <properties>
+                <property>
+                  <key>scripts</key>
+                  <value>src/main/resources/db/migration/*.sql</value>
+                </property>
+                <property>
+                  <key>sort</key>
+                  <value>flyway</value>
+                </property>
+                <property>
+                  <key>defaultNameCase</key>
+                  <value>lower</value>
+                </property>
+              </properties>
+              <includes>.*</includes>
+              <inputSchema>PUBLIC</inputSchema>
+              <outputSchemaToDefault>true</outputSchemaToDefault>
+              <outputCatalogToDefault>true</outputCatalogToDefault>
+            </database>
+            <generate>
+              <javaTimeTypes>true</javaTimeTypes>
+              <daos>false</daos>
+              <pojos>false</pojos>
+            </generate>
+            <target>
+              <packageName>mn.netgroup.cb.productcatalog.generated</packageName>
+              <directory>target/generated-sources/jooq</directory>
+            </target>
+          </generator>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

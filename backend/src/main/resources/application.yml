@@ -1,0 +1,64 @@
+# PLATFORM-14 · 001-product-family-catalog · committed runtime configuration.
+#
+# NFR-003: no credential value is committed. Every datasource and cursor-key value below is
+# read from the environment and carries no default, so a missing one fails startup loudly
+# rather than falling back to a literal in this file.
+spring:
+  application:
+    name: cb-product-catalog
+
+  # java-backend-rules, "Virtual threads are enabled by one property". The check reads this
+  # checked-in default, not the effective runtime value — an environment variable can still
+  # override it (that skill's named gap 1, restated in lld §7).
+  threads:
+    virtual:
+      enabled: true
+
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+  jooq:
+    sql-dialect: postgres
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+# java-backend-observability, "Structured JSON on stdout": Spring Boot's own structured
+# logging, Elastic Common Schema form. ECS serialises the mapped diagnostic context into the
+# event, which is what makes the correlation id retrievable (lld D-07).
+logging:
+  structured:
+    format:
+      console: ecs
+
+# FR-014. The datasource indicator is on by default; details and components stay off so the
+# body is exactly {"status": "..."} as the committed contract declares (lld D-05).
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+
+springdoc:
+  api-docs:
+    version: openapi_3_1
+  # Springdoc's own actuator rendering mangles the operationId and emits vendor media types,
+  # both of which move under a springdoc bump and flap the drift gate. One owned
+  # OpenApiCustomizer puts /actuator/health into the document instead (lld D-05).
+  show-actuator: false
+
+# The cursor sealing key. D-09: a required property with no default, carrying a key
+# identifier so the key rotates without invalidating cursors already issued. Tests generate
+# their own key per test class, so no key literal exists in this repository at all.
+# The `keys` map is deliberately absent from this file: it holds secret material and is
+# supplied per environment as CATALOG_CURSOR_KEYS_<KEYID>. Startup fails if it is empty.
+catalog:
+  cursor:
+    active-key-id: ${CURSOR_ACTIVE_KEY_ID}
